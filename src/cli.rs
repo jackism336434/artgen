@@ -19,6 +19,13 @@ pub enum GradientName {
     Fire,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AnimationName {
+    Blink,
+}
+
+pub const DEFAULT_ANIMATION_SPEED_MS: u64 = 150;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "artgen",
@@ -45,6 +52,14 @@ pub struct Cli {
     /// Custom gradient end color.
     #[arg(long, value_enum, requires = "from", conflicts_with_all = ["color", "gradient"])]
     pub to: Option<ColorName>,
+
+    /// Animation effect.
+    #[arg(long, value_enum)]
+    pub animate: Option<AnimationName>,
+
+    /// Animation frame interval in milliseconds.
+    #[arg(long, requires = "animate", value_parser = clap::value_parser!(u64).range(1..))]
+    pub speed: Option<u64>,
 }
 
 #[cfg(test)]
@@ -100,6 +115,45 @@ mod tests {
             "--gradient",
             "fire",
         ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parses_blink_animation_with_gradient() {
+        let cli = Cli::try_parse_from([
+            "artgen",
+            "hello",
+            "--gradient",
+            "rainbow",
+            "--animate",
+            "blink",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.gradient, Some(GradientName::Rainbow));
+        assert_eq!(cli.animate, Some(AnimationName::Blink));
+    }
+
+    #[test]
+    fn parses_animation_speed() {
+        let cli = Cli::try_parse_from(["artgen", "hello", "--animate", "blink", "--speed", "120"])
+            .unwrap();
+
+        assert_eq!(cli.animate, Some(AnimationName::Blink));
+        assert_eq!(cli.speed, Some(120));
+    }
+
+    #[test]
+    fn rejects_speed_without_animation() {
+        let result = Cli::try_parse_from(["artgen", "hello", "--speed", "150"]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_zero_speed() {
+        let result = Cli::try_parse_from(["artgen", "hello", "--animate", "blink", "--speed", "0"]);
 
         assert!(result.is_err());
     }

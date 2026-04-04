@@ -5,8 +5,8 @@ mod render;
 use clap::Parser;
 use std::process::ExitCode;
 
-use cli::{Cli, ColorName};
-use color::OutputStyle;
+use cli::{Cli, ColorName, DEFAULT_ANIMATION_SPEED_MS};
+use color::{AnimationConfig, OutputStyle};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -29,8 +29,14 @@ fn run(cli: Cli) -> Result<(), String> {
         (None, None, None) => OutputStyle::Solid(cli.color.unwrap_or(ColorName::White)),
         _ => return Err("invalid color mode combination".to_string()),
     };
+    let animation = cli.animate.map(|name| AnimationConfig {
+        name,
+        frame_interval: std::time::Duration::from_millis(
+            cli.speed.unwrap_or(DEFAULT_ANIMATION_SPEED_MS),
+        ),
+    });
 
-    color::print_styled(&rendered, style)
+    color::print_styled(&rendered, style, animation)
         .map_err(|err| format!("failed to write to terminal: {err}"))?;
     Ok(())
 }

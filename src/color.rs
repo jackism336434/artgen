@@ -1,11 +1,20 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use crossterm::{
     ExecutableCommand,
+    cursor::{Hide, MoveToColumn, MoveUp, Show},
     style::{Color, ResetColor, SetForegroundColor},
+    terminal::{Clear, ClearType},
 };
 
-use crate::cli::{ColorName, GradientName};
+use crate::cli::{AnimationName, ColorName, GradientName};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputStyle {
@@ -14,61 +23,129 @@ pub enum OutputStyle {
     CustomGradient { from: ColorName, to: ColorName },
 }
 
-pub fn print_styled(text: &str, style: OutputStyle) -> io::Result<()> {
-    match style {
-        OutputStyle::Solid(color_name) => print_solid(text, color_name),
-        OutputStyle::Gradient(gradient_name) => print_gradient(text, gradient_name),
-        OutputStyle::CustomGradient { from, to } => print_two_color_gradient(text, from, to),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationConfig {
+    pub name: AnimationName,
+    pub frame_interval: Duration,
+}
+
+pub fn print_styled(
+    text: &str,
+    style: OutputStyle,
+    animation: Option<AnimationConfig>,
+) -> io::Result<()> {
+    match animation {
+        Some(animation) => print_animated(text, style, animation),
+        None => print_static(text, style),
     }
 }
 
-fn print_solid(text: &str, color_name: ColorName) -> io::Result<()> {
+fn print_static(text: &str, style: OutputStyle) -> io::Result<()> {
     let mut stdout = io::stdout();
-    stdout.execute(SetForegroundColor(to_crossterm_color(color_name)))?;
-    write!(stdout, "{text}")?;
+    render_frame_with_transform(&mut stdout, text, style, |_, _, base| base)
+}
+
+fn print_animated(text: &str, style: OutputStyle, animation: AnimationConfig) -> io::Result<()> {
+    match animation.name {
+        AnimationName::Blink => print_blink_animation(text, style, animation.frame_interval),
+    }
+}
+
+fn print_blink_animation(
+    text: &str,
+    style: OutputStyle,
+    frame_interval: Duration,
+) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let line_count = line_count(text);
+    let interrupted = install_ctrlc_handler()?;
+    let result = (|| -> io::Result<()> {
+        stdout.execute(Hide)?;
+
+        while !interrupted.load(Ordering::SeqCst) {
+            render_frame_with_transform(&mut stdout, text, style, |_, _, base| base)?;
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            std::thread::sleep(frame_interval);
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            rewind_animation_frame(&mut stdout, line_count)?;
+            render_frame_with_transform(&mut stdout, text, style, |_, _, base| {
+                adjust_brightness(base, 0.35)
+            })?;
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            std::thread::sleep(frame_interval);
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            rewind_animation_frame(&mut stdout, line_count)?;
+        }
+
+        Ok(())
+    })();
+
     stdout.execute(ResetColor)?;
+    stdout.execute(Show)?;
     writeln!(stdout)?;
-    Ok(())
+    stdout.flush()?;
+    result
 }
 
-fn print_gradient(text: &str, gradient_name: GradientName) -> io::Result<()> {
-    print_gradient_with_picker(text, |column, width| {
-        let palette = palette_for_gradient(gradient_name);
-        gradient_color_for_column(column, width, palette)
-    })
-}
-
-fn print_two_color_gradient(text: &str, from: ColorName, to: ColorName) -> io::Result<()> {
-    let start = color_name_to_rgb(from);
-    let end = color_name_to_rgb(to);
-
-    print_gradient_with_picker(text, |column, width| {
-        interpolated_color_for_column(column, width, start, end)
-    })
-}
-
-fn print_gradient_with_picker<F>(text: &str, mut color_for_column: F) -> io::Result<()>
+fn render_frame_with_transform<W: Write, F>(
+    stdout: &mut W,
+    text: &str,
+    style: OutputStyle,
+    mut transform: F,
+) -> io::Result<()>
 where
-    F: FnMut(usize, usize) -> Color,
+    F: FnMut(usize, usize, Color) -> Color,
 {
-    let mut stdout = io::stdout();
     let lines: Vec<&str> = text.lines().collect();
-    let max_width = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
+    let max_width = text_width(text);
 
     for line in lines {
         for (column, ch) in line.chars().enumerate() {
-            stdout.execute(SetForegroundColor(color_for_column(column, max_width)))?;
+            let base_color = color_for_position(style, column, max_width);
+            let color = transform(column, max_width, base_color);
+            crossterm::queue!(stdout, SetForegroundColor(color))?;
             write!(stdout, "{ch}")?;
         }
-        stdout.execute(ResetColor)?;
+        crossterm::queue!(stdout, ResetColor)?;
         writeln!(stdout)?;
     }
 
-    stdout.execute(ResetColor)?;
+    crossterm::queue!(stdout, ResetColor)?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn line_count(text: &str) -> u16 {
+    text.lines().count() as u16
+}
+
+fn text_width(text: &str) -> usize {
+    text.lines()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0)
+}
+
+fn rewind_animation_frame<W: Write>(stdout: &mut W, line_count: u16) -> io::Result<()> {
+    crossterm::queue!(
+        stdout,
+        MoveUp(line_count),
+        MoveToColumn(0),
+        Clear(ClearType::FromCursorDown)
+    )?;
+    stdout.flush()?;
     Ok(())
 }
 
@@ -181,6 +258,34 @@ fn gradient_color_for_column(column: usize, width: usize, palette: &[Color]) -> 
     palette[palette_index]
 }
 
+fn color_for_position(style: OutputStyle, column: usize, width: usize) -> Color {
+    match style {
+        OutputStyle::Solid(color_name) => to_crossterm_color(color_name),
+        OutputStyle::Gradient(gradient_name) => {
+            let palette = palette_for_gradient(gradient_name);
+            gradient_color_for_column(column, width, palette)
+        }
+        OutputStyle::CustomGradient { from, to } => {
+            let start = color_name_to_rgb(from);
+            let end = color_name_to_rgb(to);
+            interpolated_color_for_column(column, width, start, end)
+        }
+    }
+}
+
+fn adjust_brightness(color: Color, brightness: f32) -> Color {
+    let (r, g, b) = color_to_rgb(color);
+    Color::Rgb {
+        r: scale_channel(r, brightness),
+        g: scale_channel(g, brightness),
+        b: scale_channel(b, brightness),
+    }
+}
+
+fn scale_channel(channel: u8, brightness: f32) -> u8 {
+    ((channel as f32 * brightness).round()).clamp(0.0, 255.0) as u8
+}
+
 fn interpolated_color_for_column(
     column: usize,
     width: usize,
@@ -221,6 +326,76 @@ fn color_name_to_rgb(color_name: ColorName) -> (u8, u8, u8) {
     }
 }
 
+fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Black => (0, 0, 0),
+        Color::DarkGrey => (85, 85, 85),
+        Color::Grey => (128, 128, 128),
+        Color::White => (255, 255, 255),
+        Color::DarkRed => (128, 0, 0),
+        Color::Red => (255, 0, 0),
+        Color::DarkGreen => (0, 128, 0),
+        Color::Green => (0, 255, 0),
+        Color::DarkYellow => (128, 128, 0),
+        Color::Yellow => (255, 255, 0),
+        Color::DarkBlue => (0, 0, 128),
+        Color::Blue => (0, 0, 255),
+        Color::DarkMagenta => (128, 0, 128),
+        Color::Magenta => (255, 0, 255),
+        Color::DarkCyan => (0, 128, 128),
+        Color::Cyan => (0, 255, 255),
+        Color::Rgb { r, g, b } => (r, g, b),
+        Color::AnsiValue(value) => ansi_value_to_rgb(value),
+        Color::Reset => (255, 255, 255),
+    }
+}
+
+fn ansi_value_to_rgb(value: u8) -> (u8, u8, u8) {
+    if value < 16 {
+        const ANSI_BASE: [(u8, u8, u8); 16] = [
+            (0, 0, 0),
+            (128, 0, 0),
+            (0, 128, 0),
+            (128, 128, 0),
+            (0, 0, 128),
+            (128, 0, 128),
+            (0, 128, 128),
+            (192, 192, 192),
+            (128, 128, 128),
+            (255, 0, 0),
+            (0, 255, 0),
+            (255, 255, 0),
+            (0, 0, 255),
+            (255, 0, 255),
+            (0, 255, 255),
+            (255, 255, 255),
+        ];
+        return ANSI_BASE[value as usize];
+    }
+
+    if value >= 232 {
+        let shade = 8 + (value - 232) * 10;
+        return (shade, shade, shade);
+    }
+
+    let value = value - 16;
+    let r = value / 36;
+    let g = (value % 36) / 6;
+    let b = value % 6;
+    (
+        ansi_component_to_rgb(r),
+        ansi_component_to_rgb(g),
+        ansi_component_to_rgb(b),
+    )
+}
+
+fn ansi_component_to_rgb(component: u8) -> u8 {
+    match component {
+        0 => 0,
+        _ => 55 + component * 40,
+    }
+}
+
 fn to_crossterm_color(color_name: ColorName) -> Color {
     match color_name {
         ColorName::Red => Color::Red,
@@ -231,6 +406,18 @@ fn to_crossterm_color(color_name: ColorName) -> Color {
         ColorName::Magenta => Color::Magenta,
         ColorName::White => Color::White,
     }
+}
+
+fn install_ctrlc_handler() -> io::Result<Arc<AtomicBool>> {
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&interrupted);
+
+    ctrlc::set_handler(move || {
+        signal.store(true, Ordering::SeqCst);
+    })
+    .map_err(|err| io::Error::other(format!("failed to install Ctrl+C handler: {err}")))?;
+
+    Ok(interrupted)
 }
 
 #[cfg(test)]
@@ -287,5 +474,69 @@ mod tests {
     fn maps_named_colors_to_rgb_triplets() {
         assert_eq!(color_name_to_rgb(ColorName::Cyan), (0, 255, 255));
         assert_eq!(color_name_to_rgb(ColorName::White), (255, 255, 255));
+    }
+
+    #[test]
+    fn dims_colors_for_blink_dark_frame() {
+        assert_eq!(
+            adjust_brightness(
+                Color::Rgb {
+                    r: 200,
+                    g: 100,
+                    b: 50
+                },
+                0.5
+            ),
+            Color::Rgb {
+                r: 100,
+                g: 50,
+                b: 25
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_base_color_for_solid_output() {
+        assert_eq!(
+            color_for_position(OutputStyle::Solid(ColorName::Yellow), 0, 10),
+            Color::Yellow
+        );
+    }
+
+    #[test]
+    fn custom_gradient_base_color_keeps_edge_colors() {
+        assert_eq!(
+            color_for_position(
+                OutputStyle::CustomGradient {
+                    from: ColorName::Red,
+                    to: ColorName::Blue,
+                },
+                0,
+                5
+            ),
+            Color::Rgb { r: 255, g: 0, b: 0 }
+        );
+        assert_eq!(
+            color_for_position(
+                OutputStyle::CustomGradient {
+                    from: ColorName::Red,
+                    to: ColorName::Blue,
+                },
+                4,
+                5
+            ),
+            Color::Rgb { r: 0, g: 0, b: 255 }
+        );
+    }
+
+    #[test]
+    fn animation_config_stores_frame_interval() {
+        let config = AnimationConfig {
+            name: AnimationName::Blink,
+            frame_interval: Duration::from_millis(175),
+        };
+
+        assert_eq!(config.name, AnimationName::Blink);
+        assert_eq!(config.frame_interval, Duration::from_millis(175));
     }
 }
