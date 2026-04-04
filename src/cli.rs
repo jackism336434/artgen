@@ -22,6 +22,7 @@ pub enum GradientName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AnimationName {
     Blink,
+    Shine,
 }
 
 pub const DEFAULT_ANIMATION_SPEED_MS: u64 = 150;
@@ -156,5 +157,14 @@ mod tests {
         let result = Cli::try_parse_from(["artgen", "hello", "--animate", "blink", "--speed", "0"]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parses_shine_animation_with_speed() {
+        let cli = Cli::try_parse_from(["artgen", "hello", "--animate", "shine", "--speed", "90"])
+            .unwrap();
+
+        assert_eq!(cli.animate, Some(AnimationName::Shine));
+        assert_eq!(cli.speed, Some(90));
     }
 }

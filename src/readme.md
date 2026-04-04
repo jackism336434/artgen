@@ -14,15 +14,15 @@
 ██║  ██║██║  ██║╚██████╔╝██║  ██║
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝
 ```
-当前已经支持**纯色输出**和**多种预设渐变**。
+当前已经支持**纯色输出**、**多种预设渐变**和**基础动画效果**。
 
 ---
 
 # 当前已实现能力
 1. **把普通文字转成大号 ASCII 艺术字**
-2. **给艺术字上色：纯色 / 预设渐变**
+2. **给艺术字上色：纯色 / 预设渐变 / 两端点渐变**
 3. **支持未加引号的多词文本输入**
-4. **通过命令行选择颜色模式**
+4. **通过命令行选择颜色和动画模式**
 
 当前预设渐变包括：
 
@@ -36,10 +36,23 @@
 - `--from red --to blue`
 - `--from yellow --to magenta`
 
+当前动画能力：
+
+- `--animate blink`
+- `--animate shine`
+- `--speed <ms>` 控制动画单帧间隔
+
+其中 `shine` 当前采用窄白色扫光：
+
+- 带外区域保持原始颜色不变
+- 只有极少数列参与高光移动
+
+当前动画刷新会尽量使用覆盖重绘，减少每帧整块清屏带来的闪烁感。
+
 尚未实现：
 
-- 闪烁、流光、滚动等动画
-- 用户自定义起止颜色
+- 滚动等更多动画
+- hex / RGB 字面量颜色输入
  
 
 ---
@@ -81,6 +94,8 @@ cargo run -- hello world --color cyan
 cargo run -- hello --gradient rainbow
 cargo run -- hello --gradient sunset
 cargo run -- hello --from red --to blue
+cargo run -- hello --animate blink --speed 120
+cargo run -- hello --gradient ocean --animate shine --speed 100
 ```
 
 

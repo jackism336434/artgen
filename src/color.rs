@@ -11,7 +11,6 @@ use crossterm::{
     ExecutableCommand,
     cursor::{Hide, MoveToColumn, MoveUp, Show},
     style::{Color, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType},
 };
 
 use crate::cli::{AnimationName, ColorName, GradientName};
@@ -48,6 +47,7 @@ fn print_static(text: &str, style: OutputStyle) -> io::Result<()> {
 fn print_animated(text: &str, style: OutputStyle, animation: AnimationConfig) -> io::Result<()> {
     match animation.name {
         AnimationName::Blink => print_blink_animation(text, style, animation.frame_interval),
+        AnimationName::Shine => print_shine_animation(text, style, animation.frame_interval),
     }
 }
 
@@ -99,6 +99,51 @@ fn print_blink_animation(
     result
 }
 
+fn print_shine_animation(
+    text: &str,
+    style: OutputStyle,
+    frame_interval: Duration,
+) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let line_count = line_count(text);
+    let width = text_width(text) as i32;
+    let radius = shine_radius(width);
+    let interrupted = install_ctrlc_handler()?;
+    let result = (|| -> io::Result<()> {
+        let mut center = -radius;
+        let max_center = width - 1 + radius;
+        stdout.execute(Hide)?;
+
+        while !interrupted.load(Ordering::SeqCst) {
+            render_frame_with_transform(&mut stdout, text, style, |column, _, base| {
+                apply_shine_highlight(base, column, center as f32, radius as f32)
+            })?;
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            std::thread::sleep(frame_interval);
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            rewind_animation_frame(&mut stdout, line_count)?;
+            center += 1;
+            if center > max_center {
+                center = -radius;
+            }
+        }
+
+        Ok(())
+    })();
+
+    stdout.execute(ResetColor)?;
+    stdout.execute(Show)?;
+    writeln!(stdout)?;
+    stdout.flush()?;
+    result
+}
+
 fn render_frame_with_transform<W: Write, F>(
     stdout: &mut W,
     text: &str,
@@ -117,6 +162,10 @@ where
             let color = transform(column, max_width, base_color);
             crossterm::queue!(stdout, SetForegroundColor(color))?;
             write!(stdout, "{ch}")?;
+        }
+        for _ in line.chars().count()..max_width {
+            crossterm::queue!(stdout, ResetColor)?;
+            write!(stdout, " ")?;
         }
         crossterm::queue!(stdout, ResetColor)?;
         writeln!(stdout)?;
@@ -138,13 +187,12 @@ fn text_width(text: &str) -> usize {
         .unwrap_or(0)
 }
 
+fn shine_radius(width: i32) -> i32 {
+    if width <= 24 { 2 } else { 3 }
+}
+
 fn rewind_animation_frame<W: Write>(stdout: &mut W, line_count: u16) -> io::Result<()> {
-    crossterm::queue!(
-        stdout,
-        MoveUp(line_count),
-        MoveToColumn(0),
-        Clear(ClearType::FromCursorDown)
-    )?;
+    crossterm::queue!(stdout, MoveUp(line_count), MoveToColumn(0))?;
     stdout.flush()?;
     Ok(())
 }
@@ -280,6 +328,37 @@ fn adjust_brightness(color: Color, brightness: f32) -> Color {
         g: scale_channel(g, brightness),
         b: scale_channel(b, brightness),
     }
+}
+
+fn apply_shine_highlight(color: Color, column: usize, center: f32, radius: f32) -> Color {
+    let distance = (column as f32 - center).abs();
+    if distance > radius {
+        return color;
+    }
+
+    let strength = if distance <= 0.5 {
+        0.95
+    } else if distance <= 1.5 {
+        0.5
+    } else {
+        0.22
+    };
+
+    blend_towards_white(color, strength)
+}
+
+fn blend_towards_white(color: Color, amount: f32) -> Color {
+    let (r, g, b) = color_to_rgb(color);
+    Color::Rgb {
+        r: blend_channel_towards_white(r, amount),
+        g: blend_channel_towards_white(g, amount),
+        b: blend_channel_towards_white(b, amount),
+    }
+}
+
+fn blend_channel_towards_white(channel: u8, amount: f32) -> u8 {
+    let channel = channel as f32;
+    (channel + (255.0 - channel) * amount).round() as u8
 }
 
 fn scale_channel(channel: u8, brightness: f32) -> u8 {
@@ -538,5 +617,64 @@ mod tests {
 
         assert_eq!(config.name, AnimationName::Blink);
         assert_eq!(config.frame_interval, Duration::from_millis(175));
+    }
+
+    #[test]
+    fn shine_highlight_center_is_stronger_than_edge() {
+        let center = apply_shine_highlight(
+            Color::Rgb {
+                r: 80,
+                g: 120,
+                b: 160,
+            },
+            5,
+            5.0,
+            3.0,
+        );
+        let edge = apply_shine_highlight(
+            Color::Rgb {
+                r: 80,
+                g: 120,
+                b: 160,
+            },
+            7,
+            5.0,
+            3.0,
+        );
+
+        assert_eq!(
+            center,
+            Color::Rgb {
+                r: 246,
+                g: 248,
+                b: 250
+            }
+        );
+        assert_eq!(
+            edge,
+            Color::Rgb {
+                r: 119,
+                g: 150,
+                b: 181
+            }
+        );
+    }
+
+    #[test]
+    fn shine_highlight_leaves_outside_band_unchanged() {
+        let base = Color::Rgb {
+            r: 80,
+            g: 120,
+            b: 160,
+        };
+
+        assert_eq!(apply_shine_highlight(base, 12, 5.0, 3.0), base);
+    }
+
+    #[test]
+    fn shine_radius_stays_narrow() {
+        assert_eq!(shine_radius(5), 2);
+        assert_eq!(shine_radius(24), 2);
+        assert_eq!(shine_radius(25), 3);
     }
 }
