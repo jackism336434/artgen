@@ -35,6 +35,18 @@
 
 - `--from red --to blue`
 - `--from yellow --to magenta`
+- `--from #ff0000 --to #00aaff`
+
+当前颜色输入除了命名色，也支持十六进制和 RGB 字面量：
+
+- `--color #f60`
+- `--color #f608`
+- `--color #ff6600`
+- `--color #ff660080`
+- `--color #ff660080 --alpha-bg white`
+- `--from #12abef --to #ffffff`
+- `--color rgb(255,102,0)`
+- `--from 255,0,0 --to 0,170,255`
 
 当前动画能力：
 
@@ -52,7 +64,7 @@
 尚未实现：
 
 - 滚动等更多动画
-- hex / RGB 字面量颜色输入
+- 自动检测终端背景的 alpha 混合策略
  
 
 ---
@@ -91,9 +103,20 @@
 ```bash
 cargo run -- hello
 cargo run -- hello world --color cyan
+cargo run -- hello --color '#f60'
+cargo run -- hello --color '#f608'
+cargo run -- hello --color '#ff6600'
+cargo run -- hello --color '#ff660080'
+cargo run -- hello --color '#ff660080' --alpha-bg white
+cargo run -- hello --color 'rgb(255,102,0)'
 cargo run -- hello --gradient rainbow
 cargo run -- hello --gradient sunset
 cargo run -- hello --from red --to blue
+cargo run -- hello --from '#f00' --to '#0af'
+cargo run -- hello --from '#f00f' --to '#00aaff80'
+cargo run -- hello --from '#f00f' --to '#00aaff80' --alpha-bg '#202020'
+cargo run -- hello --from '#ff0000' --to '#00aaff'
+cargo run -- hello --from '255,0,0' --to '0,170,255'
 cargo run -- hello --animate blink --speed 120
 cargo run -- hello --gradient ocean --animate shine --speed 100
 ```

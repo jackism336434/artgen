@@ -13,13 +13,13 @@ use crossterm::{
     style::{Color, ResetColor, SetForegroundColor},
 };
 
-use crate::cli::{AnimationName, ColorName, GradientName};
+use crate::cli::{AnimationName, CliColor, ColorName, GradientName};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputStyle {
-    Solid(ColorName),
+    Solid(CliColor),
     Gradient(GradientName),
-    CustomGradient { from: ColorName, to: ColorName },
+    CustomGradient { from: CliColor, to: CliColor },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,14 +308,14 @@ fn gradient_color_for_column(column: usize, width: usize, palette: &[Color]) -> 
 
 fn color_for_position(style: OutputStyle, column: usize, width: usize) -> Color {
     match style {
-        OutputStyle::Solid(color_name) => to_crossterm_color(color_name),
+        OutputStyle::Solid(color) => to_crossterm_color(color),
         OutputStyle::Gradient(gradient_name) => {
             let palette = palette_for_gradient(gradient_name);
             gradient_color_for_column(column, width, palette)
         }
         OutputStyle::CustomGradient { from, to } => {
-            let start = color_name_to_rgb(from);
-            let end = color_name_to_rgb(to);
+            let start = cli_color_to_rgb(from);
+            let end = cli_color_to_rgb(to);
             interpolated_color_for_column(column, width, start, end)
         }
     }
@@ -393,16 +393,8 @@ fn interpolate_channel(start: u8, end: u8, ratio: f32) -> u8 {
     (start + (end - start) * ratio).round() as u8
 }
 
-fn color_name_to_rgb(color_name: ColorName) -> (u8, u8, u8) {
-    match color_name {
-        ColorName::Red => (255, 0, 0),
-        ColorName::Green => (0, 255, 0),
-        ColorName::Blue => (0, 0, 255),
-        ColorName::Yellow => (255, 255, 0),
-        ColorName::Cyan => (0, 255, 255),
-        ColorName::Magenta => (255, 0, 255),
-        ColorName::White => (255, 255, 255),
-    }
+fn cli_color_to_rgb(color: CliColor) -> (u8, u8, u8) {
+    color.to_rgb()
 }
 
 fn color_to_rgb(color: Color) -> (u8, u8, u8) {
@@ -475,15 +467,20 @@ fn ansi_component_to_rgb(component: u8) -> u8 {
     }
 }
 
-fn to_crossterm_color(color_name: ColorName) -> Color {
-    match color_name {
-        ColorName::Red => Color::Red,
-        ColorName::Green => Color::Green,
-        ColorName::Blue => Color::Blue,
-        ColorName::Yellow => Color::Yellow,
-        ColorName::Cyan => Color::Cyan,
-        ColorName::Magenta => Color::Magenta,
-        ColorName::White => Color::White,
+fn to_crossterm_color(color: CliColor) -> Color {
+    match color {
+        CliColor::Named(ColorName::Red) => Color::Red,
+        CliColor::Named(ColorName::Green) => Color::Green,
+        CliColor::Named(ColorName::Blue) => Color::Blue,
+        CliColor::Named(ColorName::Yellow) => Color::Yellow,
+        CliColor::Named(ColorName::Cyan) => Color::Cyan,
+        CliColor::Named(ColorName::Magenta) => Color::Magenta,
+        CliColor::Named(ColorName::White) => Color::White,
+        CliColor::Rgb { r, g, b } => Color::Rgb { r, g, b },
+        CliColor::Rgba { .. } => {
+            let (r, g, b) = color.to_rgb();
+            Color::Rgb { r, g, b }
+        }
     }
 }
 
@@ -551,8 +548,39 @@ mod tests {
 
     #[test]
     fn maps_named_colors_to_rgb_triplets() {
-        assert_eq!(color_name_to_rgb(ColorName::Cyan), (0, 255, 255));
-        assert_eq!(color_name_to_rgb(ColorName::White), (255, 255, 255));
+        assert_eq!(
+            cli_color_to_rgb(CliColor::Named(ColorName::Cyan)),
+            (0, 255, 255)
+        );
+        assert_eq!(
+            cli_color_to_rgb(CliColor::Named(ColorName::White)),
+            (255, 255, 255)
+        );
+    }
+
+    #[test]
+    fn maps_hex_colors_to_rgb_triplets() {
+        assert_eq!(
+            cli_color_to_rgb(CliColor::Rgb {
+                r: 18,
+                g: 171,
+                b: 239
+            }),
+            (18, 171, 239)
+        );
+    }
+
+    #[test]
+    fn alpha_blended_hex_colors_store_darkened_rgb_values() {
+        assert_eq!(
+            cli_color_to_rgb(CliColor::Rgba {
+                r: 255,
+                g: 102,
+                b: 0,
+                a: 128
+            }),
+            (128, 51, 0)
+        );
     }
 
     #[test]
@@ -577,8 +605,32 @@ mod tests {
     #[test]
     fn resolves_base_color_for_solid_output() {
         assert_eq!(
-            color_for_position(OutputStyle::Solid(ColorName::Yellow), 0, 10),
+            color_for_position(
+                OutputStyle::Solid(CliColor::Named(ColorName::Yellow)),
+                0,
+                10
+            ),
             Color::Yellow
+        );
+    }
+
+    #[test]
+    fn resolves_base_color_for_hex_solid_output() {
+        assert_eq!(
+            color_for_position(
+                OutputStyle::Solid(CliColor::Rgb {
+                    r: 12,
+                    g: 34,
+                    b: 56
+                }),
+                0,
+                10
+            ),
+            Color::Rgb {
+                r: 12,
+                g: 34,
+                b: 56
+            }
         );
     }
 
@@ -587,8 +639,8 @@ mod tests {
         assert_eq!(
             color_for_position(
                 OutputStyle::CustomGradient {
-                    from: ColorName::Red,
-                    to: ColorName::Blue,
+                    from: CliColor::Named(ColorName::Red),
+                    to: CliColor::Named(ColorName::Blue),
                 },
                 0,
                 5
@@ -598,13 +650,63 @@ mod tests {
         assert_eq!(
             color_for_position(
                 OutputStyle::CustomGradient {
-                    from: ColorName::Red,
-                    to: ColorName::Blue,
+                    from: CliColor::Named(ColorName::Red),
+                    to: CliColor::Named(ColorName::Blue),
                 },
                 4,
                 5
             ),
             Color::Rgb { r: 0, g: 0, b: 255 }
+        );
+    }
+
+    #[test]
+    fn custom_gradient_base_color_keeps_hex_edge_colors() {
+        assert_eq!(
+            color_for_position(
+                OutputStyle::CustomGradient {
+                    from: CliColor::Rgb {
+                        r: 255,
+                        g: 102,
+                        b: 0
+                    },
+                    to: CliColor::Rgb {
+                        r: 0,
+                        g: 170,
+                        b: 255
+                    },
+                },
+                0,
+                5
+            ),
+            Color::Rgb {
+                r: 255,
+                g: 102,
+                b: 0
+            }
+        );
+        assert_eq!(
+            color_for_position(
+                OutputStyle::CustomGradient {
+                    from: CliColor::Rgb {
+                        r: 255,
+                        g: 102,
+                        b: 0
+                    },
+                    to: CliColor::Rgb {
+                        r: 0,
+                        g: 170,
+                        b: 255
+                    },
+                },
+                4,
+                5
+            ),
+            Color::Rgb {
+                r: 0,
+                g: 170,
+                b: 255
+            }
         );
     }
 

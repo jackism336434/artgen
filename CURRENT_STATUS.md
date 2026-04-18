@@ -28,6 +28,11 @@ The base workflow already works:
 - Refined `shine` so only a very narrow highlight band changes and the base color stays fixed outside it
 - Added shared `--speed <ms>` animation timing control
 - Changed animation redraw strategy to overwrite frames instead of clearing the full region on every tick
+- Added configurable `--alpha-bg <color>` for resolving alpha-enabled colors
+- Added `#RGB` short hex color input support for `--color`, `--from`, and `--to`
+- Added `#RGBA` and `#RRGGBBAA` color input support, composited against black
+- Added `#RRGGBB` color input support for `--color`, `--from`, and `--to`
+- Added `rgb(r,g,b)` and `r,g,b` color input support for `--color`, `--from`, and `--to`
 - Enforced mutual exclusion between `--color` and `--gradient`
 - Created `plans/` directory for incremental task planning
 - Updated user-facing README to match current CLI behavior
@@ -48,8 +53,10 @@ The base workflow already works:
 ## Current CLI Behavior
 - Accepts one or more words as text input
 - Supports `--color <name>` for solid output
+- Supports `--color <name|#RGB|#RGBA|#RRGGBB|#RRGGBBAA|rgb(r,g,b)|r,g,b>` for solid output
 - Supports `--gradient <name>` for left-to-right preset gradients
-- Supports `--from <color> --to <color>` for left-to-right custom gradients
+- Supports `--from <color> --to <color>` for left-to-right custom gradients, including `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, `rgb(r,g,b)`, and `r,g,b`
+- Supports `--alpha-bg <color>` to control how alpha-enabled colors are resolved, defaulting to black
 - Supports `--animate blink|shine` to animate the selected color mode until `Ctrl+C`
 - Supports `--speed <ms>` to control animation frame interval
 - Defaults to white solid output when no color mode is provided
@@ -71,10 +78,19 @@ Custom endpoint colors currently reuse the existing named colors:
 - `magenta`
 - `white`
 
+Custom color input also supports:
+
+- `#RGB`
+- `#RGBA`
+- `#RRGGBB`
+- `#RRGGBBAA`
+- `rgb(r,g,b)`
+- `r,g,b`
+
 ## Next Recommended Steps
 - Consider whether the next animation should be `scroll` or a randomized `twinkle`
 - Consider lightweight integration tests around `cargo run` behavior in addition to current unit tests
-- Consider whether color input should expand to hex/RGB before adding more animation styles
+- Consider whether `--alpha-bg` should support a named preset like `terminal` or `auto`
 
 ## Known Workflow Rule
 Before adding any new feature, create a matching plan file under `plans/`.
