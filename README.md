@@ -22,10 +22,31 @@
 
 ## 运行要求
 
-- 已安装 Rust 工具链与 `cargo`
 - 支持 ANSI 颜色输出的终端
 
-## 快速开始
+## 快速开始（直接运行）
+
+下载或获取编译好的可执行文件后，直接运行：
+
+```bash
+# Windows
+artgen.exe hello
+
+# 或在 PowerShell 中
+.\artgen.exe hello --gradient rainbow
+
+# 或将 artgen.exe 加入 PATH 后直接使用
+artgen hello --color cyan
+```
+第二种方法
+
+git clone下来之后，在根目录执行
+``` bash
+cargo install --path .
+
+```
+
+## 开发运行（需要 Rust）
 
 安装依赖并直接运行：
 
@@ -101,33 +122,33 @@ artgen <TEXT...> [--color <COLOR> | --gradient <GRADIENT> | --from <COLOR> --to 
 
 ```bash
 # 默认白色输出
-cargo run -- hello
+artgen.exe hello
 
 # 纯色
-cargo run -- hello world --color cyan
-cargo run -- hello --color '#f60'
-cargo run -- hello --color '#f608'
-cargo run -- hello --color '#ff6600'
-cargo run -- hello --color '#ff660080'
-cargo run -- hello --color '#ff660080' --alpha-bg white
-cargo run -- hello --color 'rgb(255,102,0)'
-cargo run -- hello --color '255,102,0'
+artgen.exe hello world --color cyan
+artgen.exe hello --color '#f60'
+artgen.exe hello --color '#f608'
+artgen.exe hello --color '#ff6600'
+artgen.exe hello --color '#ff660080'
+artgen.exe hello --color '#ff660080' --alpha-bg white
+artgen.exe hello --color 'rgb(255,102,0)'
+artgen.exe hello --color '255,102,0'
 
 # 预设渐变
-cargo run -- hello --gradient rainbow
-cargo run -- hello --gradient sunset
+artgen.exe hello --gradient rainbow
+artgen.exe hello --gradient sunset
 
 # 自定义双端点渐变
-cargo run -- hello --from red --to blue
-cargo run -- hello --from '#f00' --to '#0af'
-cargo run -- hello --from '#f00f' --to '#00aaff80'
-cargo run -- hello --from '#f00f' --to '#00aaff80' --alpha-bg '#202020'
-cargo run -- hello --from '#ff0000' --to '#00aaff'
-cargo run -- hello --from 'rgb(255,0,0)' --to '0,170,255'
+artgen.exe hello --from red --to blue
+artgen.exe hello --from '#f00' --to '#0af'
+artgen.exe hello --from '#f00f' --to '#00aaff80'
+artgen.exe hello --from '#f00f' --to '#00aaff80' --alpha-bg '#202020'
+artgen.exe hello --from '#ff0000' --to '#00aaff'
+artgen.exe hello --from 'rgb(255,0,0)' --to '0,170,255'
 
 # 动画
-cargo run -- hello --animate blink --speed 120
-cargo run -- hello --gradient ocean --animate shine --speed 100
+artgen.exe hello --animate blink --speed 120
+artgen.exe hello --gradient ocean --animate shine --speed 100
 ```
 
 如果使用动画模式，程序会持续运行，按 `Ctrl+C` 可退出。
